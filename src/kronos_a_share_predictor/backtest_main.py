@@ -86,14 +86,17 @@ def _print_best_result(summary_frame) -> tuple[int | None, float | None]:
 
     best_row = summary_frame.iloc[0]
     best_context = int(best_row["context_length"])
-    best_success_rate = float(best_row["success_rate"])
+    best_success_rate = float(best_row["day3_success_rate"])
     logger.info(
-        "best context_length=%s success_rate=%.4f sample_count=%s avg_day3_mape=%.4f direction_accuracy=%.4f",
+        "best context_length=%s day1_success_rate=%.4f day2_success_rate=%.4f day3_success_rate=%.4f sample_count=%s avg_day1_mape=%.4f avg_day2_mape=%.4f avg_day3_mape=%.4f",
         best_context,
+        float(best_row["day1_success_rate"]),
+        float(best_row["day2_success_rate"]),
         best_success_rate,
         int(best_row["sample_count"]),
+        float(best_row["avg_day1_mape"]),
+        float(best_row["avg_day2_mape"]),
         float(best_row["avg_day3_mape"]),
-        float(best_row["direction_accuracy"]),
     )
     return best_context, best_success_rate
 

@@ -82,7 +82,7 @@ PYTHONPATH=src python main.py --recommendation-date 2026-03-13 --endtime 2026-03
 
 - 候选 context length: 30,60,90,120,150,180,200,300,400,500
 - 成功率定义: 第 3 天收盘方向正确，且第 3 天收盘 MAPE <= 8%
-- 输出: 控制台汇总 + MySQL + CSV
+- 输出: 控制台汇总 + MySQL + CSV，汇总同时展示 day1/day2/day3 逐日成功率，其中最佳窗口仍按 day3_success_rate 选择
 
 执行方式：
 
@@ -104,8 +104,8 @@ python backtest.py --recommendation-date 2026-03-13 --backtest-end-date 2026-03-
 
 CSV 输出：
 
-- *_summary.csv: 各 context length 的成功率汇总。
-- *_details.csv: 样本明细，包含预测与真实对比。
+- *_summary.csv: 各 context length 的 day1/day2/day3 成功率汇总。
+- *_details.csv: 样本明细，包含 day1/day2/day3 预测与真实对比以及逐日成功标记。
 
 ## 当前实现说明
 

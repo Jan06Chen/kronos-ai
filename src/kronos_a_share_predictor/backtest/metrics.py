@@ -23,9 +23,17 @@ class BacktestEvaluationResult:
     actual_close_1: float
     actual_close_2: float
     actual_close_3: float
+    day1_mape: float
+    day2_mape: float
     day3_mape: float
     close_mae: float
     close_rmse: float
+    day1_direction_correct: bool
+    day2_direction_correct: bool
+    day3_direction_correct: bool
+    day1_success: bool
+    day2_success: bool
+    day3_success: bool
     direction_correct: bool
     is_success: bool
 
@@ -40,14 +48,28 @@ def evaluate_backtest_prediction(sample, prediction_frame: pd.DataFrame, success
     abs_errors = (pred_close - actual_close).abs()
     close_mae = float(abs_errors.mean())
     close_rmse = float(sqrt(((pred_close - actual_close) ** 2).mean()))
-    actual_day3 = float(actual_close.iloc[2])
-    pred_day3 = float(pred_close.iloc[2])
-    day3_mape = float(abs(pred_day3 - actual_day3) / max(abs(actual_day3), 1e-8))
+    baseline_close = float(sample.baseline_close)
 
-    pred_delta = pred_day3 - float(sample.baseline_close)
-    actual_delta = actual_day3 - float(sample.baseline_close)
-    direction_correct = (pred_delta == 0 and actual_delta == 0) or (pred_delta > 0 and actual_delta > 0) or (pred_delta < 0 and actual_delta < 0)
-    is_success = bool(direction_correct and day3_mape <= success_mape_threshold)
+    def _direction_matches(predicted_close: float, observed_close: float) -> bool:
+        predicted_delta = predicted_close - baseline_close
+        observed_delta = observed_close - baseline_close
+        return (
+            (predicted_delta == 0 and observed_delta == 0)
+            or (predicted_delta > 0 and observed_delta > 0)
+            or (predicted_delta < 0 and observed_delta < 0)
+        )
+
+    day1_mape = float(abs(float(pred_close.iloc[0]) - float(actual_close.iloc[0])) / max(abs(float(actual_close.iloc[0])), 1e-8))
+    day2_mape = float(abs(float(pred_close.iloc[1]) - float(actual_close.iloc[1])) / max(abs(float(actual_close.iloc[1])), 1e-8))
+    day3_mape = float(abs(float(pred_close.iloc[2]) - float(actual_close.iloc[2])) / max(abs(float(actual_close.iloc[2])), 1e-8))
+
+    day1_direction_correct = _direction_matches(float(pred_close.iloc[0]), float(actual_close.iloc[0]))
+    day2_direction_correct = _direction_matches(float(pred_close.iloc[1]), float(actual_close.iloc[1]))
+    day3_direction_correct = _direction_matches(float(pred_close.iloc[2]), float(actual_close.iloc[2]))
+
+    day1_success = bool(day1_direction_correct and day1_mape <= success_mape_threshold)
+    day2_success = bool(day2_direction_correct and day2_mape <= success_mape_threshold)
+    day3_success = bool(day3_direction_correct and day3_mape <= success_mape_threshold)
 
     return BacktestEvaluationResult(
         stock_code=sample.stock_code,
@@ -55,7 +77,7 @@ def evaluate_backtest_prediction(sample, prediction_frame: pd.DataFrame, success
         context_length=sample.context_length,
         history_start_date=str(sample.history_start_date.date()),
         history_end_date=str(sample.history_end_date.date()),
-        baseline_close=float(sample.baseline_close),
+        baseline_close=baseline_close,
         prediction_date_1=future_dates[0],
         prediction_date_2=future_dates[1],
         prediction_date_3=future_dates[2],
@@ -65,11 +87,19 @@ def evaluate_backtest_prediction(sample, prediction_frame: pd.DataFrame, success
         actual_close_1=float(actual_close.iloc[0]),
         actual_close_2=float(actual_close.iloc[1]),
         actual_close_3=float(actual_close.iloc[2]),
+        day1_mape=day1_mape,
+        day2_mape=day2_mape,
         day3_mape=day3_mape,
         close_mae=close_mae,
         close_rmse=close_rmse,
-        direction_correct=direction_correct,
-        is_success=is_success,
+        day1_direction_correct=day1_direction_correct,
+        day2_direction_correct=day2_direction_correct,
+        day3_direction_correct=day3_direction_correct,
+        day1_success=day1_success,
+        day2_success=day2_success,
+        day3_success=day3_success,
+        direction_correct=day3_direction_correct,
+        is_success=day3_success,
     )
 
 
@@ -88,9 +118,20 @@ def summarize_results(results: list[BacktestEvaluationResult], context_lengths: 
             {
                 "context_length": list(context_lengths),
                 "sample_count": [0] * len(context_lengths),
+                "day1_success_count": [0] * len(context_lengths),
+                "day2_success_count": [0] * len(context_lengths),
+                "day3_success_count": [0] * len(context_lengths),
                 "success_count": [0] * len(context_lengths),
+                "day1_success_rate": [0.0] * len(context_lengths),
+                "day2_success_rate": [0.0] * len(context_lengths),
+                "day3_success_rate": [0.0] * len(context_lengths),
                 "success_rate": [0.0] * len(context_lengths),
+                "day1_direction_accuracy": [0.0] * len(context_lengths),
+                "day2_direction_accuracy": [0.0] * len(context_lengths),
+                "day3_direction_accuracy": [0.0] * len(context_lengths),
                 "direction_accuracy": [0.0] * len(context_lengths),
+                "avg_day1_mape": [0.0] * len(context_lengths),
+                "avg_day2_mape": [0.0] * len(context_lengths),
                 "avg_day3_mape": [0.0] * len(context_lengths),
                 "avg_close_mae": [0.0] * len(context_lengths),
                 "avg_close_rmse": [0.0] * len(context_lengths),
@@ -99,11 +140,22 @@ def summarize_results(results: list[BacktestEvaluationResult], context_lengths: 
 
     grouped = detail_frame.groupby("context_length", as_index=False).agg(
         sample_count=("stock_code", "count"),
-        success_count=("is_success", "sum"),
-        success_rate=("is_success", "mean"),
-        direction_accuracy=("direction_correct", "mean"),
+        day1_success_count=("day1_success", "sum"),
+        day2_success_count=("day2_success", "sum"),
+        day3_success_count=("day3_success", "sum"),
+        day1_success_rate=("day1_success", "mean"),
+        day2_success_rate=("day2_success", "mean"),
+        day3_success_rate=("day3_success", "mean"),
+        day1_direction_accuracy=("day1_direction_correct", "mean"),
+        day2_direction_accuracy=("day2_direction_correct", "mean"),
+        day3_direction_accuracy=("day3_direction_correct", "mean"),
+        avg_day1_mape=("day1_mape", "mean"),
+        avg_day2_mape=("day2_mape", "mean"),
         avg_day3_mape=("day3_mape", "mean"),
         avg_close_mae=("close_mae", "mean"),
         avg_close_rmse=("close_rmse", "mean"),
     )
-    return grouped.sort_values(by=["success_rate", "avg_day3_mape", "sample_count"], ascending=[False, True, False]).reset_index(drop=True)
+    grouped["success_count"] = grouped["day3_success_count"]
+    grouped["success_rate"] = grouped["day3_success_rate"]
+    grouped["direction_accuracy"] = grouped["day3_direction_accuracy"]
+    return grouped.sort_values(by=["day3_success_rate", "avg_day3_mape", "sample_count"], ascending=[False, True, False]).reset_index(drop=True)

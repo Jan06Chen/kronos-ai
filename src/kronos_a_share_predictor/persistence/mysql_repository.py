@@ -243,9 +243,31 @@ class MysqlRepository:
     def save_backtest_results(self, backtest_run_id: int, result_rows: list[dict]) -> None:
         if not result_rows:
             return
+        allowed_columns = {
+            "stock_code",
+            "evaluation_date",
+            "context_length",
+            "history_start_date",
+            "history_end_date",
+            "baseline_close",
+            "prediction_date_1",
+            "prediction_date_2",
+            "prediction_date_3",
+            "pred_close_1",
+            "pred_close_2",
+            "pred_close_3",
+            "actual_close_1",
+            "actual_close_2",
+            "actual_close_3",
+            "day3_mape",
+            "close_mae",
+            "close_rmse",
+            "direction_correct",
+            "is_success",
+        }
         rows = [
             dict(
-                row,
+                {key: value for key, value in row.items() if key in allowed_columns},
                 backtest_run_id=backtest_run_id,
                 direction_correct=1 if row["direction_correct"] else 0,
                 is_success=1 if row["is_success"] else 0,
