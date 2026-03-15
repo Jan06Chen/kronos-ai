@@ -34,6 +34,13 @@ def _parse_int_list(value: str, default: tuple[int, ...]) -> tuple[int, ...]:
     return tuple(int(item) for item in raw)
 
 
+def _parse_float_list(value: str, default: tuple[float, ...]) -> tuple[float, ...]:
+    raw = [item.strip() for item in value.split(",") if item.strip()]
+    if not raw:
+        return default
+    return tuple(float(item) for item in raw)
+
+
 def _parse_bool(value: str, default: bool) -> bool:
     if not value:
         return default
@@ -58,10 +65,15 @@ class AppConfig:
     top_p: float
     temperature: float
     sample_count: int
+    inference_verbose: bool
     backtest_start_date: date
     backtest_end_date: date
     backtest_months: int
     backtest_context_lengths: tuple[int, ...]
+    tuning_context_length: int
+    tuning_temperatures: tuple[float, ...]
+    tuning_top_ps: tuple[float, ...]
+    tuning_sample_counts: tuple[int, ...]
     success_mape_threshold: float
     backtest_batch_size: int
     report_output_dir: Path
@@ -102,12 +114,26 @@ def load_config() -> AppConfig:
         top_p=float(os.getenv("KRONOS_TOP_P", "0.9")),
         temperature=float(os.getenv("KRONOS_TEMPERATURE", "1.0")),
         sample_count=int(os.getenv("KRONOS_SAMPLE_COUNT", "1")),
+        inference_verbose=_parse_bool(os.getenv("KRONOS_INFERENCE_VERBOSE", "false"), False),
         backtest_start_date=backtest_start_date,
         backtest_end_date=backtest_end_date,
         backtest_months=backtest_months,
         backtest_context_lengths=_parse_int_list(
             os.getenv("KRONOS_BACKTEST_CONTEXT_LENGTHS", "30,60,90,120,150,180,200,300,400,500"),
             (30, 60, 90, 120, 150, 180, 200, 300, 400, 500),
+        ),
+        tuning_context_length=int(os.getenv("KRONOS_TUNING_CONTEXT_LENGTH", "120")),
+        tuning_temperatures=_parse_float_list(
+            os.getenv("KRONOS_TUNING_TEMPERATURES", "0.7,0.9,1.0,1.1"),
+            (0.7, 0.9, 1.0, 1.1),
+        ),
+        tuning_top_ps=_parse_float_list(
+            os.getenv("KRONOS_TUNING_TOP_PS", "0.8,0.9,0.95"),
+            (0.8, 0.9, 0.95),
+        ),
+        tuning_sample_counts=_parse_int_list(
+            os.getenv("KRONOS_TUNING_SAMPLE_COUNTS", "1,3,5"),
+            (1, 3, 5),
         ),
         success_mape_threshold=float(os.getenv("KRONOS_BACKTEST_SUCCESS_MAPE_THRESHOLD", "0.08")),
         backtest_batch_size=int(os.getenv("KRONOS_BACKTEST_BATCH_SIZE", "32")),

@@ -107,9 +107,38 @@ CSV 输出：
 - *_summary.csv: 各 context length 的 day1/day2/day3 成功率汇总。
 - *_details.csv: 样本明细，包含 day1/day2/day3 预测与真实对比以及逐日成功标记。
 
+## 采样参数调优
+
+当 context length 已经固定，例如已经验证 `120` 最优时，可以继续扫描 Kronos 的采样参数：
+
+- `temperature`
+- `top_p`
+- `sample_count`
+
+说明：`verbose` 只影响推理日志输出，不影响预测成功率，因此它是可配置执行参数，但不是优化目标。
+
+执行方式：
+
+```bash
+python tune_sampling.py --recommendation-date 2026-03-13 --backtest-end-date 2026-03-14 --context-length 120
+```
+
+可选参数：
+
+- `--temperatures`: 逗号分隔的 temperature 候选值
+- `--top-ps`: 逗号分隔的 top_p 候选值
+- `--sample-counts`: 逗号分隔的 sample_count 候选值
+- `--verbose-inference`: 是否打印 Kronos 自回归推理进度
+
+输出：
+
+- `sampling_tuning_*_summary.csv`: 每组参数组合的成功率汇总
+- `sampling_tuning_*_best_details.csv`: 最优参数组合对应的样本明细
+
 ## 当前实现说明
 
 - 未来时间轴使用“工作日”近似规则生成，会跳过周末，但不会自动跳过法定节假日。
 - 如果某只股票历史长度不足，会被跳过，不影响其他股票预测。
 - 批量推理前会把所有可用股票裁剪到共同历史长度，且长度不超过 200。
 - 回测时严格使用评估日及之前的数据构造历史窗口，真实标签始终来自之后 3 个交易日，避免未来数据泄漏。
+- 采样参数调优默认固定一个 context length，仅比较 `temperature`、`top_p`、`sample_count` 对 day3_success_rate 的影响。

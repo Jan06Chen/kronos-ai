@@ -149,6 +149,7 @@ def run_backtest(config: AppConfig) -> None:
             sample_count=config.sample_count,
             success_mape_threshold=config.success_mape_threshold,
             batch_size=config.backtest_batch_size,
+            verbose=config.inference_verbose,
         )
         results, summary_frame, detail_frame = engine.run(samples_by_context)
         repository.save_backtest_results(backtest_run_id, detail_frame.to_dict(orient="records"))

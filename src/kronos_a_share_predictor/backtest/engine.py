@@ -25,6 +25,7 @@ class BacktestEngine:
         sample_count: int,
         success_mape_threshold: float,
         batch_size: int,
+        verbose: bool = False,
     ) -> None:
         self._service = service
         self._pred_len = pred_len
@@ -33,6 +34,7 @@ class BacktestEngine:
         self._sample_count = sample_count
         self._success_mape_threshold = success_mape_threshold
         self._batch_size = max(batch_size, 1)
+        self._verbose = verbose
 
     def run(self, samples_by_context: dict[int, list]) -> tuple[list[BacktestEvaluationResult], pd.DataFrame, pd.DataFrame]:
         results: list[BacktestEvaluationResult] = []
@@ -51,6 +53,7 @@ class BacktestEngine:
                     temperature=self._temperature,
                     top_p=self._top_p,
                     sample_count=self._sample_count,
+                    verbose=self._verbose,
                 )
                 for sample, prediction_frame in predictions:
                     results.append(

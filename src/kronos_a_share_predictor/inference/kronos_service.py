@@ -55,6 +55,7 @@ class KronosService:
         temperature: float,
         top_p: float,
         sample_count: int,
+        verbose: bool = False,
     ) -> list[tuple[PreparedSeries, pd.DataFrame]]:
         prediction_frames = self._predictor.predict_batch(
             df_list=[item.x_df for item in prepared_series],
@@ -64,6 +65,6 @@ class KronosService:
             T=temperature,
             top_p=top_p,
             sample_count=sample_count,
-            verbose=False,
+            verbose=verbose,
         )
         return list(zip(prepared_series, prediction_frames))
