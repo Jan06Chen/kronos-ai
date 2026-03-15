@@ -68,3 +68,24 @@ class KronosService:
             verbose=verbose,
         )
         return list(zip(prepared_series, prediction_frames))
+
+    def predict(
+        self,
+        prepared_series: PreparedSeries | Any,
+        pred_len: int,
+        temperature: float,
+        top_p: float,
+        sample_count: int,
+        verbose: bool = False,
+    ) -> tuple[PreparedSeries, pd.DataFrame]:
+        prediction_frame = self._predictor.predict(
+            df=prepared_series.x_df,
+            x_timestamp=prepared_series.x_timestamp,
+            y_timestamp=prepared_series.y_timestamp,
+            pred_len=pred_len,
+            T=temperature,
+            top_p=top_p,
+            sample_count=sample_count,
+            verbose=verbose,
+        )
+        return prepared_series, prediction_frame

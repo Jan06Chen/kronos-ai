@@ -29,6 +29,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--recommendation-date", help="Override recommendation date, format YYYY-MM-DD")
     parser.add_argument("--starttime", help="Override starttime, format YYYY-MM-DD")
     parser.add_argument("--endtime", help="Override endtime, format YYYY-MM-DD")
+    parser.add_argument("--context-length", type=int, help="Override prediction context length")
     return parser.parse_args()
 
 
@@ -40,6 +41,10 @@ def _apply_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConf
         updates["starttime"] = date.fromisoformat(args.starttime)
     if args.endtime:
         updates["endtime"] = date.fromisoformat(args.endtime)
+    if args.context_length is not None:
+        if args.context_length <= 0:
+            raise ValueError("context-length 必须是正整数")
+        updates["prediction_context_length"] = args.context_length
 
     next_config = replace(config, **updates) if updates else config
     if args.endtime and not args.starttime:
@@ -80,6 +85,12 @@ def run_job(config: AppConfig) -> None:
     run_uuid = str(uuid.uuid4())
     run_id: int | None = None
     stock_failures: dict[str, str] = {}
+    success_count = 0
+    effective_context_length = min(
+        config.lookback_days,
+        config.max_context,
+        config.prediction_context_length if config.prediction_context_length is not None else config.max_context,
+    )
 
     try:
         stock_codes, raw_items = recommendation_client.fetch_stock_codes(config.recommendation_date.isoformat())
@@ -94,6 +105,7 @@ def run_job(config: AppConfig) -> None:
             pred_len=config.pred_len,
             min_history_points=config.min_history_points,
             max_context=config.max_context,
+            context_length=effective_context_length,
             model_name=config.model_id,
             tokenizer_name=config.tokenizer_id,
             device=config.device,
@@ -114,17 +126,6 @@ def run_job(config: AppConfig) -> None:
                 stock_failures[stock_code] = str(exc)
                 logger.warning("skip %s because %s", stock_code, exc)
 
-        prepared_series, preparation_failures = prepare_series_batch(
-            history_by_stock=history_by_stock,
-            pred_len=config.pred_len,
-            max_context=min(config.lookback_days, config.max_context),
-            min_history_points=config.min_history_points,
-        )
-        stock_failures.update(preparation_failures)
-
-        if not prepared_series:
-            raise RuntimeError("没有满足推理条件的股票，无法执行 Kronos 预测")
-
         service = KronosService(
             repo_path=config.kronos_repo_path,
             tokenizer_id=config.tokenizer_id,
@@ -132,24 +133,50 @@ def run_job(config: AppConfig) -> None:
             max_context=config.max_context,
             device=config.device,
         )
-        predictions = service.predict_batch(
-            prepared_series=prepared_series,
-            pred_len=config.pred_len,
-            temperature=config.temperature,
-            top_p=config.top_p,
-            sample_count=config.sample_count,
-        )
-        repository.save_predictions(run_id, _build_prediction_rows(predictions))
+
+        for stock_code, frame in history_by_stock.items():
+            prepared_series, preparation_failures = prepare_series_batch(
+                history_by_stock={stock_code: frame},
+                pred_len=config.pred_len,
+                max_context=effective_context_length,
+                min_history_points=config.min_history_points,
+            )
+            if preparation_failures:
+                stock_failures.update(preparation_failures)
+                continue
+            if not prepared_series:
+                stock_failures[stock_code] = "单股票预处理后没有可用的推理序列"
+                continue
+
+            try:
+                prediction = service.predict(
+                    prepared_series=prepared_series[0],
+                    pred_len=config.pred_len,
+                    temperature=config.temperature,
+                    top_p=config.top_p,
+                    sample_count=config.sample_count,
+                    verbose=config.inference_verbose,
+                )
+                repository.save_predictions(run_id, _build_prediction_rows([prediction]))
+                success_count += 1
+                logger.info("predicted and persisted stock=%s count=1", stock_code)
+            except Exception as exc:
+                stock_failures[stock_code] = str(exc)
+                logger.warning("predict failed for %s because %s", stock_code, exc)
+
+        if success_count == 0:
+            raise RuntimeError("没有任何股票预测成功，无法完成本次 Kronos 预测")
+
         repository.complete_run(
             run_id=run_id,
-            success_count=len(predictions),
+            success_count=success_count,
             failed_count=len(stock_failures),
             status="completed",
             error_message=None if not stock_failures else str(stock_failures),
         )
         logger.info(
             "run completed, success=%s failed=%s run_uuid=%s",
-            len(predictions),
+            success_count,
             len(stock_failures),
             run_uuid,
         )

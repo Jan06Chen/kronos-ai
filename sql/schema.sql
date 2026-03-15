@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS prediction_runs (
     pred_len INT NOT NULL,
     min_history_points INT NOT NULL,
     max_context INT NOT NULL,
+    context_length INT NULL,
     model_name VARCHAR(128) NOT NULL,
     tokenizer_name VARCHAR(128) NOT NULL,
     device VARCHAR(64) NULL,

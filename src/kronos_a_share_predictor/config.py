@@ -66,6 +66,7 @@ class AppConfig:
     temperature: float
     sample_count: int
     inference_verbose: bool
+    prediction_context_length: int | None
     backtest_start_date: date
     backtest_end_date: date
     backtest_months: int
@@ -94,6 +95,7 @@ def load_config() -> AppConfig:
     backtest_start_date = _parse_date(backtest_start_raw) if backtest_start_raw else _shift_months(backtest_end_date, backtest_months)
 
     device_raw = os.getenv("KRONOS_DEVICE", "").strip()
+    context_length_raw = os.getenv("KRONOS_CONTEXT_LENGTH", "").strip()
     return AppConfig(
         api_base_url=os.getenv("KRONOS_API_BASE_URL", "http://localhost:5000/api/v1").rstrip("/"),
         recommendation_date=_parse_date(os.getenv("KRONOS_RECOMMENDATION_DATE", "2026-03-13")),
@@ -115,6 +117,7 @@ def load_config() -> AppConfig:
         temperature=float(os.getenv("KRONOS_TEMPERATURE", "1.0")),
         sample_count=int(os.getenv("KRONOS_SAMPLE_COUNT", "1")),
         inference_verbose=_parse_bool(os.getenv("KRONOS_INFERENCE_VERBOSE", "false"), False),
+        prediction_context_length=int(context_length_raw) if context_length_raw else None,
         backtest_start_date=backtest_start_date,
         backtest_end_date=backtest_end_date,
         backtest_months=backtest_months,

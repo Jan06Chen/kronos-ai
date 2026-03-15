@@ -64,7 +64,7 @@ PYTHONPATH=src python main.py
 也可以覆盖日期参数：
 
 ```bash
-PYTHONPATH=src python main.py --recommendation-date 2026-03-13 --endtime 2026-03-14
+PYTHONPATH=src python3.11 main.py --recommendation-date 2026-03-13 --endtime 2026-03-14
 ```
 
 ## 运行结果
@@ -87,7 +87,7 @@ PYTHONPATH=src python main.py --recommendation-date 2026-03-13 --endtime 2026-03
 执行方式：
 
 ```bash
-python backtest.py --recommendation-date 2026-03-13 --backtest-end-date 2026-03-14
+python backtest.py --recommendation-date 2026-03-13 --backtest-end-date 2026-03-14 --context-lengths 30,60,90,120,150
 ```
 
 可选参数：
