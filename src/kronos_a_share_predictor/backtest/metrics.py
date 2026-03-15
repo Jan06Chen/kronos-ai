@@ -17,9 +17,24 @@ class BacktestEvaluationResult:
     prediction_date_1: str
     prediction_date_2: str
     prediction_date_3: str
+    pred_open_1: float
+    pred_open_2: float
+    pred_open_3: float
+    pred_high_1: float
+    pred_high_2: float
+    pred_high_3: float
+    pred_low_1: float
+    pred_low_2: float
+    pred_low_3: float
     pred_close_1: float
     pred_close_2: float
     pred_close_3: float
+    pred_volume_1: float
+    pred_volume_2: float
+    pred_volume_3: float
+    pred_amount_1: float
+    pred_amount_2: float
+    pred_amount_3: float
     actual_close_1: float
     actual_close_2: float
     actual_close_3: float
@@ -42,7 +57,12 @@ class BacktestEvaluationResult:
 
 
 def evaluate_backtest_prediction(sample, prediction_frame: pd.DataFrame, success_mape_threshold: float) -> BacktestEvaluationResult:
+    pred_open = prediction_frame["open"].reset_index(drop=True).astype(float)
+    pred_high = prediction_frame["high"].reset_index(drop=True).astype(float)
+    pred_low = prediction_frame["low"].reset_index(drop=True).astype(float)
     pred_close = prediction_frame["close"].reset_index(drop=True).astype(float)
+    pred_volume = prediction_frame["volume"].reset_index(drop=True).astype(float)
+    pred_amount = prediction_frame["amount"].reset_index(drop=True).astype(float)
     actual_close = sample.actual_future_df["close"].reset_index(drop=True).astype(float)
     future_dates = pd.to_datetime(sample.actual_future_df["timestamps"]).dt.date.astype(str).tolist()
     abs_errors = (pred_close - actual_close).abs()
@@ -81,9 +101,24 @@ def evaluate_backtest_prediction(sample, prediction_frame: pd.DataFrame, success
         prediction_date_1=future_dates[0],
         prediction_date_2=future_dates[1],
         prediction_date_3=future_dates[2],
+        pred_open_1=float(pred_open.iloc[0]),
+        pred_open_2=float(pred_open.iloc[1]),
+        pred_open_3=float(pred_open.iloc[2]),
+        pred_high_1=float(pred_high.iloc[0]),
+        pred_high_2=float(pred_high.iloc[1]),
+        pred_high_3=float(pred_high.iloc[2]),
+        pred_low_1=float(pred_low.iloc[0]),
+        pred_low_2=float(pred_low.iloc[1]),
+        pred_low_3=float(pred_low.iloc[2]),
         pred_close_1=float(pred_close.iloc[0]),
         pred_close_2=float(pred_close.iloc[1]),
         pred_close_3=float(pred_close.iloc[2]),
+        pred_volume_1=float(pred_volume.iloc[0]),
+        pred_volume_2=float(pred_volume.iloc[1]),
+        pred_volume_3=float(pred_volume.iloc[2]),
+        pred_amount_1=float(pred_amount.iloc[0]),
+        pred_amount_2=float(pred_amount.iloc[1]),
+        pred_amount_3=float(pred_amount.iloc[2]),
         actual_close_1=float(actual_close.iloc[0]),
         actual_close_2=float(actual_close.iloc[1]),
         actual_close_3=float(actual_close.iloc[2]),

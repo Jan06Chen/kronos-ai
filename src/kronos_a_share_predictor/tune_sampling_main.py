@@ -10,7 +10,12 @@ from itertools import product
 import pandas as pd
 
 from kronos_a_share_predictor.backtest.engine import BacktestEngine
-from kronos_a_share_predictor.backtest.reporting import write_sampling_tuning_reports
+from kronos_a_share_predictor.backtest.reporting import (
+    write_sampling_tuning_reports,
+    append_sampling_summary_row,
+    append_sampling_details_frame,
+    write_best_detail_file,
+)
 from kronos_a_share_predictor.clients.kline_client import KlineClient
 from kronos_a_share_predictor.clients.recommendation_client import RecommendationClient
 from kronos_a_share_predictor.config import AppConfig, load_config
@@ -186,28 +191,42 @@ def run_tuning(config: AppConfig) -> None:
         if summary_frame.empty:
             continue
         summary_row = summary_frame.iloc[0]
-        combo_records.append(
-            _build_summary_record(
-                summary_row,
-                temperature=temperature,
-                top_p=top_p,
-                sample_count=sample_count,
-                verbose=config.inference_verbose,
-            )
+        record = _build_summary_record(
+            summary_row,
+            temperature=temperature,
+            top_p=top_p,
+            sample_count=sample_count,
+            verbose=config.inference_verbose,
         )
+        combo_records.append(record)
+        try:
+            append_sampling_summary_row(record, config.report_output_dir, run_uuid)
+        except Exception:
+            logger.exception("failed to append sampling summary row to disk")
         sort_key = (
             float(summary_row["day3_success_rate"]),
             -float(summary_row["avg_day3_mape"]),
             int(summary_row["sample_count"]),
         )
-        if best_sort_key is None or sort_key > best_sort_key:
-            best_sort_key = sort_key
-            best_detail_frame = detail_frame.assign(
+        # append per-combination detail rows to disk
+        try:
+            detail_to_write = detail_frame.assign(
                 temperature=temperature,
                 top_p=top_p,
                 sample_count_candidate=sample_count,
                 verbose=config.inference_verbose,
             )
+            append_sampling_details_frame(detail_to_write, config.report_output_dir, run_uuid)
+        except Exception:
+            logger.exception("failed to append sampling detail frame to disk")
+
+        if best_sort_key is None or sort_key > best_sort_key:
+            best_sort_key = sort_key
+            best_detail_frame = detail_to_write
+            try:
+                write_best_detail_file(best_detail_frame, config.report_output_dir, run_uuid)
+            except Exception:
+                logger.exception("failed to write best detail file to disk")
 
     if not combo_records:
         raise RuntimeError("没有产生任何有效的采样参数调优结果")
