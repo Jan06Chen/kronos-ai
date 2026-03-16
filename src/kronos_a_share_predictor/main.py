@@ -45,6 +45,7 @@ def _apply_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConf
     updates = {}
     if args.recommendation_date:
         updates["recommendation_date"] = date.fromisoformat(args.recommendation_date)
+        updates["use_recommendation_source"] = True
     if args.starttime:
         updates["starttime"] = date.fromisoformat(args.starttime)
     if args.endtime:
@@ -129,8 +130,15 @@ def run_job(config: AppConfig) -> None:
     )
 
     try:
-        stock_codes, raw_items = recommendation_client.fetch_stock_codes(config.recommendation_date.isoformat())
-        logger.info("fetched %s recommendation rows and %s unique stocks", len(raw_items), len(stock_codes))
+        stock_codes, raw_items = recommendation_client.fetch_stock_codes(
+            config.recommendation_date.isoformat() if config.use_recommendation_source else None
+        )
+        logger.info(
+            "fetched %s source rows and %s unique stocks from %s",
+            len(raw_items),
+            len(stock_codes),
+            "recommendations" if config.use_recommendation_source else "stock/list",
+        )
 
         run_id = repository.create_run(
             run_uuid=run_uuid,

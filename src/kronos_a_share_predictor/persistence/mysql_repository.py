@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from sqlalchemy import (
@@ -22,6 +23,9 @@ from sqlalchemy.dialects.mysql import BIGINT as MYSQL_BIGINT
 
 
 class MysqlRepository:
+    _ERROR_MESSAGE_MAX_LENGTH = 60000
+    _ERROR_MESSAGE_SAMPLE_LIMIT = 20
+
     def __init__(self, db_url: str) -> None:
         self._engine = create_engine(db_url, future=True)
         self._metadata = MetaData()
@@ -140,6 +144,43 @@ class MysqlRepository:
     def create_schema(self) -> None:
         self._metadata.create_all(self._engine)
 
+    @classmethod
+    def _compact_error_message(cls, error_message: object | None) -> str | None:
+        if error_message is None:
+            return None
+
+        if isinstance(error_message, dict):
+            items = list(error_message.items())
+            sample_items = items[: cls._ERROR_MESSAGE_SAMPLE_LIMIT]
+            sample_payload = {str(key): str(value) for key, value in sample_items}
+            payload = {
+                "total_failures": len(items),
+                "sample_failures": sample_payload,
+            }
+            omitted = len(items) - len(sample_items)
+            if omitted > 0:
+                payload["omitted_failures"] = omitted
+            rendered = json.dumps(payload, ensure_ascii=False)
+        elif isinstance(error_message, (list, tuple, set)):
+            items = list(error_message)
+            sample_items = [str(item) for item in items[: cls._ERROR_MESSAGE_SAMPLE_LIMIT]]
+            payload = {
+                "total_errors": len(items),
+                "sample_errors": sample_items,
+            }
+            omitted = len(items) - len(sample_items)
+            if omitted > 0:
+                payload["omitted_errors"] = omitted
+            rendered = json.dumps(payload, ensure_ascii=False)
+        else:
+            rendered = str(error_message)
+
+        if len(rendered) <= cls._ERROR_MESSAGE_MAX_LENGTH:
+            return rendered
+
+        truncated_length = cls._ERROR_MESSAGE_MAX_LENGTH - 64
+        return f"{rendered[:truncated_length]}... [truncated total_length={len(rendered)}]"
+
     def create_run(
         self,
         *,
@@ -192,7 +233,7 @@ class MysqlRepository:
             result = connection.execute(statement)
             return int(result.inserted_primary_key[0])
 
-    def complete_run(self, run_id: int, success_count: int, failed_count: int, status: str, error_message: str | None) -> None:
+    def complete_run(self, run_id: int, success_count: int, failed_count: int, status: str, error_message: object | None) -> None:
         statement = (
             update(self.prediction_runs)
             .where(self.prediction_runs.c.id == run_id)
@@ -200,7 +241,7 @@ class MysqlRepository:
                 stock_count_success=success_count,
                 stock_count_failed=failed_count,
                 status=status,
-                error_message=error_message,
+                error_message=self._compact_error_message(error_message),
                 finished_at=datetime.utcnow(),
             )
         )
@@ -260,7 +301,7 @@ class MysqlRepository:
         csv_summary_path: str | None,
         csv_detail_path: str | None,
         status: str,
-        error_message: str | None,
+        error_message: object | None,
     ) -> None:
         statement = (
             update(self.backtest_runs)
@@ -273,7 +314,7 @@ class MysqlRepository:
                 csv_summary_path=csv_summary_path,
                 csv_detail_path=csv_detail_path,
                 status=status,
-                error_message=error_message,
+                error_message=self._compact_error_message(error_message),
                 finished_at=datetime.utcnow(),
             )
         )

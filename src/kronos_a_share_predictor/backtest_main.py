@@ -45,6 +45,7 @@ def _apply_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConf
     updates = {}
     if args.recommendation_date:
         updates["recommendation_date"] = date.fromisoformat(args.recommendation_date)
+        updates["use_recommendation_source"] = True
     if args.backtest_start_date:
         updates["backtest_start_date"] = date.fromisoformat(args.backtest_start_date)
     if args.backtest_end_date:
@@ -112,8 +113,15 @@ def run_backtest(config: AppConfig) -> None:
     history_failures: dict[str, str] = {}
 
     try:
-        stock_codes, raw_items = recommendation_client.fetch_stock_codes(config.recommendation_date.isoformat())
-        logger.info("fetched %s recommendation rows and %s unique stocks for backtest", len(raw_items), len(stock_codes))
+        stock_codes, raw_items = recommendation_client.fetch_stock_codes(
+            config.recommendation_date.isoformat() if config.use_recommendation_source else None
+        )
+        logger.info(
+            "fetched %s source rows and %s unique stocks for backtest from %s",
+            len(raw_items),
+            len(stock_codes),
+            "recommendations" if config.use_recommendation_source else "stock/list",
+        )
 
         backtest_run_id = repository.create_backtest_run(
             run_uuid=run_uuid,

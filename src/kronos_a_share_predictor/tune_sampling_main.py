@@ -60,6 +60,7 @@ def _apply_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConf
     updates = {}
     if args.recommendation_date:
         updates["recommendation_date"] = date.fromisoformat(args.recommendation_date)
+        updates["use_recommendation_source"] = True
     if args.backtest_start_date:
         updates["backtest_start_date"] = date.fromisoformat(args.backtest_start_date)
     if args.backtest_end_date:
@@ -133,8 +134,15 @@ def run_tuning(config: AppConfig) -> None:
     recommendation_client = RecommendationClient(config.api_base_url, config.request_timeout)
     kline_client = KlineClient(config.api_base_url, config.request_timeout)
 
-    stock_codes, raw_items = recommendation_client.fetch_stock_codes(config.recommendation_date.isoformat())
-    logger.info("fetched %s recommendation rows and %s unique stocks for sampling tuning", len(raw_items), len(stock_codes))
+    stock_codes, raw_items = recommendation_client.fetch_stock_codes(
+        config.recommendation_date.isoformat() if config.use_recommendation_source else None
+    )
+    logger.info(
+        "fetched %s source rows and %s unique stocks for sampling tuning from %s",
+        len(raw_items),
+        len(stock_codes),
+        "recommendations" if config.use_recommendation_source else "stock/list",
+    )
 
     history_by_stock, history_failures = _fetch_history_by_stock(config, stock_codes, kline_client)
     if history_failures:

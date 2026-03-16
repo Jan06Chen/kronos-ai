@@ -51,6 +51,7 @@ def _parse_bool(value: str, default: bool) -> bool:
 class AppConfig:
     api_base_url: str
     recommendation_date: date
+    use_recommendation_source: bool
     starttime: date
     endtime: date
     lookback_days: int
@@ -98,6 +99,7 @@ def load_config() -> AppConfig:
     return AppConfig(
         api_base_url=os.getenv("KRONOS_API_BASE_URL", "http://localhost:5000/api/v1").rstrip("/"),
         recommendation_date=_parse_date(os.getenv("KRONOS_RECOMMENDATION_DATE", "2026-03-13")),
+        use_recommendation_source=False,
         starttime=starttime,
         endtime=endtime,
         lookback_days=lookback_days,

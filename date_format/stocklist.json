@@ -1,0 +1,41 @@
+{
+    "code": 20000,
+    "data": {
+        "count": 5477,
+        "items": [
+            {
+                "a_share_market_cap": 220641351934.5,
+                "add_time": "2025-02-16T21:46:55",
+                "circulating_a_shares": 19405571850.0,
+                "id": 1,
+                "pb": 0.519,
+                "pe": 4.957,
+                "pe_ttm": 4.957,
+                "ps": 1.504,
+                "stock_code": "000001",
+                "stock_name": "平安银行",
+                "ths_the_ths_concept_index_code_stock": "883300.TI,885338.TI,885663.TI,885694.TI,885966.TI",
+                "ths_the_ths_concept_index_stock": "证金持股,跨境支付(CIPS),深股通,融资融券",
+                "total_market_cap": 220645289911.26,
+                "total_shares": 19405918198.0
+            },
+            {
+                "a_share_market_cap": null,
+                "add_time": "2025-02-16T21:46:56",
+                "circulating_a_shares": null,
+                "id": 5395,
+                "pb": null,
+                "pe": null,
+                "pe_ttm": null,
+                "ps": null,
+                "stock_code": "920128",
+                "stock_name": "胜业电气",
+                "ths_the_ths_concept_index_code_stock": null,
+                "ths_the_ths_concept_index_stock": null,
+                "total_market_cap": null,
+                "total_shares": null
+            }
+        ]
+    },
+    "message": "success"
+}
