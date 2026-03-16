@@ -184,7 +184,6 @@ def run_tuning(config: AppConfig) -> None:
             top_p=top_p,
             sample_count=sample_count,
             success_mape_threshold=config.success_mape_threshold,
-            batch_size=config.backtest_batch_size,
             verbose=config.inference_verbose,
         )
         _, summary_frame, detail_frame = engine.run({config.tuning_context_length: fixed_samples})

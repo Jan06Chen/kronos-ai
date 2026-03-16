@@ -24,7 +24,6 @@ class BacktestEngine:
         top_p: float,
         sample_count: int,
         success_mape_threshold: float,
-        batch_size: int,
         verbose: bool = False,
     ) -> None:
         self._service = service
@@ -33,7 +32,6 @@ class BacktestEngine:
         self._top_p = top_p
         self._sample_count = sample_count
         self._success_mape_threshold = success_mape_threshold
-        self._batch_size = max(batch_size, 1)
         self._verbose = verbose
 
     def run(self, samples_by_context: dict[int, list]) -> tuple[list[BacktestEvaluationResult], pd.DataFrame, pd.DataFrame]:
@@ -45,24 +43,22 @@ class BacktestEngine:
                 continue
 
             logger.info("running backtest for context_length=%s sample_count=%s", context_length, len(samples))
-            for start_index in range(0, len(samples), self._batch_size):
-                batch = samples[start_index : start_index + self._batch_size]
-                predictions = self._service.predict_batch(
-                    prepared_series=batch,
+            for sample in samples:
+                sample, prediction_frame = self._service.predict(
+                    prepared_series=sample,
                     pred_len=self._pred_len,
                     temperature=self._temperature,
                     top_p=self._top_p,
                     sample_count=self._sample_count,
                     verbose=self._verbose,
                 )
-                for sample, prediction_frame in predictions:
-                    results.append(
-                        evaluate_backtest_prediction(
-                            sample=sample,
-                            prediction_frame=prediction_frame,
-                            success_mape_threshold=self._success_mape_threshold,
-                        )
+                results.append(
+                    evaluate_backtest_prediction(
+                        sample=sample,
+                        prediction_frame=prediction_frame,
+                        success_mape_threshold=self._success_mape_threshold,
                     )
+                )
 
         detail_frame = results_to_detail_frame(results)
         summary_frame = summarize_results(results, tuple(samples_by_context.keys()))

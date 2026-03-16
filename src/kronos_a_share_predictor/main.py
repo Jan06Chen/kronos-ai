@@ -30,6 +30,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--starttime", help="Override starttime, format YYYY-MM-DD")
     parser.add_argument("--endtime", help="Override endtime, format YYYY-MM-DD")
     parser.add_argument("--context-length", type=int, help="Override prediction context length")
+    parser.add_argument("--lookback-days", type=int, help="Override historical lookback days")
+    parser.add_argument("--pred-len", type=int, help="Override prediction horizon length")
+    parser.add_argument("--min-history-points", type=int, help="Override minimum history points required")
+    parser.add_argument("--temperature", type=float, help="Override prediction temperature")
+    parser.add_argument("--top-p", type=float, help="Override prediction top_p")
+    parser.add_argument("--sample-count", type=int, help="Override prediction sample count")
+    parser.add_argument("--device", help="Override inference device, e.g. cpu, cuda, mps")
+    parser.add_argument("--verbose-inference", action="store_true", help="Show Kronos autoregressive progress")
     return parser.parse_args()
 
 
@@ -45,6 +53,34 @@ def _apply_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConf
         if args.context_length <= 0:
             raise ValueError("context-length 必须是正整数")
         updates["prediction_context_length"] = args.context_length
+    if args.lookback_days is not None:
+        if args.lookback_days <= 0:
+            raise ValueError("lookback-days 必须是正整数")
+        updates["lookback_days"] = args.lookback_days
+    if args.pred_len is not None:
+        if args.pred_len <= 0:
+            raise ValueError("pred-len 必须是正整数")
+        updates["pred_len"] = args.pred_len
+    if args.min_history_points is not None:
+        if args.min_history_points <= 0:
+            raise ValueError("min-history-points 必须是正整数")
+        updates["min_history_points"] = args.min_history_points
+    if args.temperature is not None:
+        if args.temperature <= 0:
+            raise ValueError("temperature 必须大于 0")
+        updates["temperature"] = args.temperature
+    if args.top_p is not None:
+        if not 0 < args.top_p <= 1:
+            raise ValueError("top-p 必须在 (0, 1] 区间内")
+        updates["top_p"] = args.top_p
+    if args.sample_count is not None:
+        if args.sample_count <= 0:
+            raise ValueError("sample-count 必须是正整数")
+        updates["sample_count"] = args.sample_count
+    if args.device:
+        updates["device"] = args.device
+    if args.verbose_inference:
+        updates["inference_verbose"] = True
 
     next_config = replace(config, **updates) if updates else config
     if args.endtime and not args.starttime:

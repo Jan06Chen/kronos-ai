@@ -76,7 +76,6 @@ class AppConfig:
     tuning_top_ps: tuple[float, ...]
     tuning_sample_counts: tuple[int, ...]
     success_mape_threshold: float
-    backtest_batch_size: int
     report_output_dir: Path
     write_csv_reports: bool
     max_context: int = 512
@@ -139,7 +138,6 @@ def load_config() -> AppConfig:
             (1, 3, 5),
         ),
         success_mape_threshold=float(os.getenv("KRONOS_BACKTEST_SUCCESS_MAPE_THRESHOLD", "0.08")),
-        backtest_batch_size=int(os.getenv("KRONOS_BACKTEST_BATCH_SIZE", "32")),
         report_output_dir=Path(os.getenv("KRONOS_REPORT_OUTPUT_DIR", "outputs/reports")).expanduser(),
         write_csv_reports=_parse_bool(os.getenv("KRONOS_BACKTEST_WRITE_CSV", "true"), True),
     )

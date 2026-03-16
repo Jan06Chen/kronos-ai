@@ -148,7 +148,6 @@ def run_backtest(config: AppConfig) -> None:
             top_p=config.top_p,
             sample_count=config.sample_count,
             success_mape_threshold=config.success_mape_threshold,
-            batch_size=config.backtest_batch_size,
             verbose=config.inference_verbose,
         )
         results, summary_frame, detail_frame = engine.run(samples_by_context)
