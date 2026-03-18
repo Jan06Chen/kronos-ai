@@ -15,16 +15,21 @@ from sqlalchemy import (
     ForeignKey,
     MetaData,
     Table,
+    bindparam,
     create_engine,
     insert,
+    text,
     update,
 )
 from sqlalchemy.dialects.mysql import BIGINT as MYSQL_BIGINT
 
+from kronos_a_share_predictor.data.transformers import kline_items_to_frame
+
 
 class MysqlRepository:
-    _ERROR_MESSAGE_MAX_LENGTH = 60000
+    _ERROR_MESSAGE_MAX_BYTES = 16000
     _ERROR_MESSAGE_SAMPLE_LIMIT = 20
+    _HISTORY_QUERY_BATCH_SIZE = 500
 
     def __init__(self, db_url: str) -> None:
         self._engine = create_engine(db_url, future=True)
@@ -145,41 +150,57 @@ class MysqlRepository:
         self._metadata.create_all(self._engine)
 
     @classmethod
+    def _compact_error_value(cls, value: object, *, sample_limit: int) -> object:
+        if isinstance(value, dict):
+            items = list(value.items())
+            sampled_items = items[:sample_limit]
+            compacted = {
+                str(key): cls._compact_error_value(nested_value, sample_limit=max(3, sample_limit // 2))
+                for key, nested_value in sampled_items
+            }
+            omitted = len(items) - len(sampled_items)
+            if omitted > 0:
+                compacted["omitted_entries"] = omitted
+            return compacted
+
+        if isinstance(value, (list, tuple, set)):
+            items = list(value)
+            sampled_items = items[:sample_limit]
+            compacted = [cls._compact_error_value(item, sample_limit=max(3, sample_limit // 2)) for item in sampled_items]
+            omitted = len(items) - len(sampled_items)
+            if omitted > 0:
+                compacted.append(f"... omitted {omitted} entries")
+            return compacted
+
+        return str(value)
+
+    @classmethod
+    def _truncate_error_message(cls, rendered: str) -> str:
+        encoded = rendered.encode("utf-8")
+        if len(encoded) <= cls._ERROR_MESSAGE_MAX_BYTES:
+            return rendered
+
+        suffix = f"... [truncated total_bytes={len(encoded)}]"
+        suffix_bytes = suffix.encode("utf-8")
+        allowed = max(0, cls._ERROR_MESSAGE_MAX_BYTES - len(suffix_bytes))
+        truncated = encoded[:allowed].decode("utf-8", errors="ignore")
+        return f"{truncated}{suffix}"
+
+    @classmethod
     def _compact_error_message(cls, error_message: object | None) -> str | None:
         if error_message is None:
             return None
 
         if isinstance(error_message, dict):
-            items = list(error_message.items())
-            sample_items = items[: cls._ERROR_MESSAGE_SAMPLE_LIMIT]
-            sample_payload = {str(key): str(value) for key, value in sample_items}
-            payload = {
-                "total_failures": len(items),
-                "sample_failures": sample_payload,
-            }
-            omitted = len(items) - len(sample_items)
-            if omitted > 0:
-                payload["omitted_failures"] = omitted
+            payload = cls._compact_error_value(error_message, sample_limit=cls._ERROR_MESSAGE_SAMPLE_LIMIT)
             rendered = json.dumps(payload, ensure_ascii=False)
         elif isinstance(error_message, (list, tuple, set)):
-            items = list(error_message)
-            sample_items = [str(item) for item in items[: cls._ERROR_MESSAGE_SAMPLE_LIMIT]]
-            payload = {
-                "total_errors": len(items),
-                "sample_errors": sample_items,
-            }
-            omitted = len(items) - len(sample_items)
-            if omitted > 0:
-                payload["omitted_errors"] = omitted
+            payload = cls._compact_error_value(error_message, sample_limit=cls._ERROR_MESSAGE_SAMPLE_LIMIT)
             rendered = json.dumps(payload, ensure_ascii=False)
         else:
             rendered = str(error_message)
 
-        if len(rendered) <= cls._ERROR_MESSAGE_MAX_LENGTH:
-            return rendered
-
-        truncated_length = cls._ERROR_MESSAGE_MAX_LENGTH - 64
-        return f"{rendered[:truncated_length]}... [truncated total_length={len(rendered)}]"
+        return cls._truncate_error_message(rendered)
 
     def create_run(
         self,
@@ -255,6 +276,55 @@ class MysqlRepository:
         statement = insert(self.stock_predictions)
         with self._engine.begin() as connection:
             connection.execute(statement, rows)
+
+    def fetch_history_by_stock(self, stock_codes: list[str], start_date: str, end_date: str) -> tuple[dict[str, object], dict[str, str]]:
+        if not stock_codes:
+            return {}, {}
+
+        grouped_rows: dict[str, list[dict]] = {stock_code: [] for stock_code in stock_codes}
+        statement = text(
+            """
+            SELECT stock_code, date, open, high, low, close, volume, amount
+            FROM all_detail_day
+            WHERE stock_code IN :stock_codes
+              AND date BETWEEN :start_date AND :end_date
+            ORDER BY stock_code, date
+            """
+        ).bindparams(bindparam("stock_codes", expanding=True))
+
+        with self._engine.connect() as connection:
+            for start_index in range(0, len(stock_codes), self._HISTORY_QUERY_BATCH_SIZE):
+                batch_codes = stock_codes[start_index : start_index + self._HISTORY_QUERY_BATCH_SIZE]
+                result = connection.execute(
+                    statement,
+                    {
+                        "stock_codes": batch_codes,
+                        "start_date": start_date,
+                        "end_date": end_date,
+                    },
+                )
+                for row in result.mappings():
+                    grouped_rows[str(row["stock_code"])].append(
+                        {
+                            "date": row["date"],
+                            "open": row["open"],
+                            "high": row["high"],
+                            "low": row["low"],
+                            "close": row["close"],
+                            "volume": row["volume"],
+                            "amount": row["amount"],
+                        }
+                    )
+
+        history_by_stock: dict[str, object] = {}
+        failures: dict[str, str] = {}
+        for stock_code in stock_codes:
+            try:
+                history_by_stock[stock_code] = kline_items_to_frame(stock_code, grouped_rows.get(stock_code, []))
+            except Exception as exc:
+                failures[stock_code] = str(exc)
+
+        return history_by_stock, failures
 
     def create_backtest_run(
         self,

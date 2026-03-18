@@ -16,11 +16,11 @@ from kronos_a_share_predictor.backtest.reporting import (
     append_sampling_details_frame,
     write_best_detail_file,
 )
-from kronos_a_share_predictor.clients.kline_client import KlineClient
 from kronos_a_share_predictor.clients.recommendation_client import RecommendationClient
 from kronos_a_share_predictor.config import AppConfig, load_config
-from kronos_a_share_predictor.data.transformers import build_backtest_samples, kline_items_to_frame
+from kronos_a_share_predictor.data.transformers import build_backtest_samples
 from kronos_a_share_predictor.inference.kronos_service import KronosService
+from kronos_a_share_predictor.persistence.mysql_repository import MysqlRepository
 
 
 logger = logging.getLogger(__name__)
@@ -86,18 +86,21 @@ def _apply_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConf
     return next_config
 
 
-def _fetch_history_by_stock(config: AppConfig, stock_codes: list[str], client: KlineClient) -> tuple[dict[str, object], dict[str, str]]:
+def _fetch_history_by_stock(config: AppConfig, stock_codes: list[str], repository: MysqlRepository) -> tuple[dict[str, object], dict[str, str]]:
     fetch_start_date = config.backtest_start_date - timedelta(days=config.tuning_context_length * 2 + config.pred_len * 2)
-    history_by_stock = {}
-    failures: dict[str, str] = {}
-
-    for stock_code in stock_codes:
-        try:
-            items = client.fetch_kline(stock_code, fetch_start_date.isoformat(), config.backtest_end_date.isoformat())
-            history_by_stock[stock_code] = kline_items_to_frame(stock_code, items)
-        except Exception as exc:
-            failures[stock_code] = str(exc)
-            logger.warning("skip %s because %s", stock_code, exc)
+    history_by_stock, failures = repository.fetch_history_by_stock(
+        stock_codes,
+        fetch_start_date.isoformat(),
+        config.backtest_end_date.isoformat(),
+    )
+    for stock_code, error_message in failures.items():
+        logger.warning(
+            "skip %s because %s, fetch_range=%s..%s, source=database:all_detail_day",
+            stock_code,
+            error_message,
+            fetch_start_date.isoformat(),
+            config.backtest_end_date.isoformat(),
+        )
 
     return history_by_stock, failures
 
@@ -132,7 +135,8 @@ def _print_best_configuration(summary_frame: pd.DataFrame) -> None:
 
 def run_tuning(config: AppConfig) -> None:
     recommendation_client = RecommendationClient(config.api_base_url, config.request_timeout)
-    kline_client = KlineClient(config.api_base_url, config.request_timeout)
+    repository = MysqlRepository(config.db_url)
+    repository.create_schema()
 
     stock_codes, raw_items = recommendation_client.fetch_stock_codes(
         config.recommendation_date.isoformat() if config.use_recommendation_source else None
@@ -144,7 +148,7 @@ def run_tuning(config: AppConfig) -> None:
         "recommendations" if config.use_recommendation_source else "stock/list",
     )
 
-    history_by_stock, history_failures = _fetch_history_by_stock(config, stock_codes, kline_client)
+    history_by_stock, history_failures = _fetch_history_by_stock(config, stock_codes, repository)
     if history_failures:
         logger.info("history fetch failures=%s", len(history_failures))
 

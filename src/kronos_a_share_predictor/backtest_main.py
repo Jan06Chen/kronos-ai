@@ -8,10 +8,9 @@ from datetime import date, timedelta
 
 from kronos_a_share_predictor.backtest.engine import BacktestEngine
 from kronos_a_share_predictor.backtest.reporting import write_backtest_reports
-from kronos_a_share_predictor.clients.kline_client import KlineClient
 from kronos_a_share_predictor.clients.recommendation_client import RecommendationClient
 from kronos_a_share_predictor.config import AppConfig, load_config
-from kronos_a_share_predictor.data.transformers import build_backtest_samples, kline_items_to_frame
+from kronos_a_share_predictor.data.transformers import build_backtest_samples
 from kronos_a_share_predictor.inference.kronos_service import KronosService
 from kronos_a_share_predictor.persistence.mysql_repository import MysqlRepository
 
@@ -63,19 +62,22 @@ def _apply_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConf
     return next_config
 
 
-def _fetch_history_by_stock(config: AppConfig, stock_codes: list[str], client: KlineClient) -> tuple[dict[str, object], dict[str, str]]:
+def _fetch_history_by_stock(config: AppConfig, stock_codes: list[str], repository: MysqlRepository) -> tuple[dict[str, object], dict[str, str]]:
     max_context = max(config.backtest_context_lengths)
     fetch_start_date = config.backtest_start_date - timedelta(days=max_context * 2 + config.pred_len * 2)
-    history_by_stock = {}
-    failures: dict[str, str] = {}
-
-    for stock_code in stock_codes:
-        try:
-            items = client.fetch_kline(stock_code, fetch_start_date.isoformat(), config.backtest_end_date.isoformat())
-            history_by_stock[stock_code] = kline_items_to_frame(stock_code, items)
-        except Exception as exc:
-            failures[stock_code] = str(exc)
-            logger.warning("skip %s because %s", stock_code, exc)
+    history_by_stock, failures = repository.fetch_history_by_stock(
+        stock_codes,
+        fetch_start_date.isoformat(),
+        config.backtest_end_date.isoformat(),
+    )
+    for stock_code, error_message in failures.items():
+        logger.warning(
+            "skip %s because %s, fetch_range=%s..%s, source=database:all_detail_day",
+            stock_code,
+            error_message,
+            fetch_start_date.isoformat(),
+            config.backtest_end_date.isoformat(),
+        )
 
     return history_by_stock, failures
 
@@ -104,7 +106,6 @@ def _print_best_result(summary_frame) -> tuple[int | None, float | None]:
 
 def run_backtest(config: AppConfig) -> None:
     recommendation_client = RecommendationClient(config.api_base_url, config.request_timeout)
-    kline_client = KlineClient(config.api_base_url, config.request_timeout)
     repository = MysqlRepository(config.db_url)
     repository.create_schema()
 
@@ -133,7 +134,7 @@ def run_backtest(config: AppConfig) -> None:
             success_mape_threshold=config.success_mape_threshold,
         )
 
-        history_by_stock, history_failures = _fetch_history_by_stock(config, stock_codes, kline_client)
+        history_by_stock, history_failures = _fetch_history_by_stock(config, stock_codes, repository)
         samples_by_context = build_backtest_samples(
             history_by_stock=history_by_stock,
             context_lengths=config.backtest_context_lengths,

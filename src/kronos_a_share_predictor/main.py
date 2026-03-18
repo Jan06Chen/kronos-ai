@@ -6,10 +6,9 @@ import uuid
 from dataclasses import replace
 from datetime import date, timedelta
 
-from kronos_a_share_predictor.clients.kline_client import KlineClient
 from kronos_a_share_predictor.clients.recommendation_client import RecommendationClient
 from kronos_a_share_predictor.config import AppConfig, load_config
-from kronos_a_share_predictor.data.transformers import kline_items_to_frame, prepare_series_batch
+from kronos_a_share_predictor.data.transformers import prepare_series_batch
 from kronos_a_share_predictor.inference.kronos_service import KronosService
 from kronos_a_share_predictor.persistence.mysql_repository import MysqlRepository
 
@@ -38,7 +37,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-count", type=int, help="Override prediction sample count")
     parser.add_argument("--device", help="Override inference device, e.g. cpu, cuda, mps")
     parser.add_argument("--verbose-inference", action="store_true", help="Show Kronos autoregressive progress")
-    return parser.parse_args()
+    args, unknown = parser.parse_known_args()
+
+    invalid_options = [item for item in unknown if item.startswith("-") and item != "-"]
+    if invalid_options:
+        parser.error(f"unrecognized arguments: {' '.join(invalid_options)}")
+    if unknown:
+        logger.warning("ignore unexpected trailing arguments: %s", " ".join(unknown))
+
+    return args
 
 
 def _apply_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConfig:
@@ -113,9 +120,14 @@ def _build_prediction_rows(predictions) -> list[dict]:
     return rows
 
 
+def _resolve_fetch_start_date(config: AppConfig, effective_context_length: int) -> date:
+    required_points = max(effective_context_length, config.min_history_points) + config.pred_len
+    buffered_start_date = config.endtime - timedelta(days=required_points * 2)
+    return min(config.starttime, buffered_start_date)
+
+
 def run_job(config: AppConfig) -> None:
     recommendation_client = RecommendationClient(config.api_base_url, config.request_timeout)
-    kline_client = KlineClient(config.api_base_url, config.request_timeout)
     repository = MysqlRepository(config.db_url)
     repository.create_schema()
 
@@ -128,6 +140,8 @@ def run_job(config: AppConfig) -> None:
         config.max_context,
         config.prediction_context_length if config.prediction_context_length is not None else config.max_context,
     )
+    effective_recommendation_date = config.recommendation_date if config.use_recommendation_source else config.endtime
+    fetch_start_date = _resolve_fetch_start_date(config, effective_context_length)
 
     try:
         stock_codes, raw_items = recommendation_client.fetch_stock_codes(
@@ -142,7 +156,7 @@ def run_job(config: AppConfig) -> None:
 
         run_id = repository.create_run(
             run_uuid=run_uuid,
-            recommendation_date=config.recommendation_date,
+            recommendation_date=effective_recommendation_date,
             starttime=config.starttime,
             endtime=config.endtime,
             lookback_days=config.lookback_days,
@@ -161,14 +175,64 @@ def run_job(config: AppConfig) -> None:
             stock_count_dedup=len(stock_codes),
         )
 
-        history_by_stock = {}
-        for stock_code in stock_codes:
-            try:
-                items = kline_client.fetch_kline(stock_code, config.starttime.isoformat(), config.endtime.isoformat())
-                history_by_stock[stock_code] = kline_items_to_frame(stock_code, items)
-            except Exception as exc:
-                stock_failures[stock_code] = str(exc)
-                logger.warning("skip %s because %s", stock_code, exc)
+        history_by_stock, history_failures = repository.fetch_history_by_stock(
+            stock_codes,
+            fetch_start_date.isoformat(),
+            config.endtime.isoformat(),
+        )
+        for stock_code, error_message in history_failures.items():
+            stock_failures[stock_code] = error_message
+            logger.warning(
+                "skip %s because %s, requested_range=%s..%s, fetch_range=%s..%s, source=database:all_detail_day",
+                stock_code,
+                error_message,
+                config.starttime.isoformat(),
+                config.endtime.isoformat(),
+                fetch_start_date.isoformat(),
+                config.endtime.isoformat(),
+            )
+
+        eligible_history_count = sum(1 for frame in history_by_stock.values() if len(frame) >= config.min_history_points)
+        logger.info(
+            "history summary requested_range=%s..%s fetch_range=%s..%s loaded_stocks=%s eligible_stocks=%s history_failures=%s min_history_points=%s context_length=%s",
+            config.starttime.isoformat(),
+            config.endtime.isoformat(),
+            fetch_start_date.isoformat(),
+            config.endtime.isoformat(),
+            len(history_by_stock),
+            eligible_history_count,
+            len(history_failures),
+            config.min_history_points,
+            effective_context_length,
+        )
+
+        max_available_history = max((len(frame) for frame in history_by_stock.values()), default=0)
+        if max_available_history < config.min_history_points:
+            logger.warning(
+                "no eligible stocks for prediction because max_available_history=%s is below min_history_points=%s, requested_range=%s..%s, fetch_range=%s..%s",
+                max_available_history,
+                config.min_history_points,
+                config.starttime.isoformat(),
+                config.endtime.isoformat(),
+                fetch_start_date.isoformat(),
+                config.endtime.isoformat(),
+            )
+            repository.complete_run(
+                run_id=run_id,
+                success_count=0,
+                failed_count=len(stock_codes),
+                status="completed",
+                error_message={
+                    "message": "没有任何股票满足最小历史数据要求",
+                    "requested_range": f"{config.starttime.isoformat()}..{config.endtime.isoformat()}",
+                    "fetch_range": f"{fetch_start_date.isoformat()}..{config.endtime.isoformat()}",
+                    "min_history_points": config.min_history_points,
+                    "max_available_history": max_available_history,
+                    "eligible_stock_count": eligible_history_count,
+                    "history_fetch_failure_count": len(history_failures),
+                },
+            )
+            return
 
         service = KronosService(
             repo_path=config.kronos_repo_path,
@@ -203,20 +267,51 @@ def run_job(config: AppConfig) -> None:
                 )
                 repository.save_predictions(run_id, _build_prediction_rows([prediction]))
                 success_count += 1
-                logger.info("predicted and persisted stock=%s count=1", stock_code)
+                # logger.info("predicted and persisted stock=%s count=1", stock_code)
             except Exception as exc:
                 stock_failures[stock_code] = str(exc)
                 logger.warning("predict failed for %s because %s", stock_code, exc)
 
         if success_count == 0:
-            raise RuntimeError("没有任何股票预测成功，无法完成本次 Kronos 预测")
+            logger.warning(
+                "run completed without predictions, success=%s failed=%s requested_range=%s..%s fetch_range=%s..%s max_available_history=%s min_history_points=%s",
+                success_count,
+                len(stock_failures),
+                config.starttime.isoformat(),
+                config.endtime.isoformat(),
+                fetch_start_date.isoformat(),
+                config.endtime.isoformat(),
+                max_available_history,
+                config.min_history_points,
+            )
+            repository.complete_run(
+                run_id=run_id,
+                success_count=0,
+                failed_count=len(stock_failures),
+                status="completed",
+                error_message={
+                    "message": "没有任何股票满足预测条件或预测成功",
+                    "requested_range": f"{config.starttime.isoformat()}..{config.endtime.isoformat()}",
+                    "fetch_range": f"{fetch_start_date.isoformat()}..{config.endtime.isoformat()}",
+                    "min_history_points": config.min_history_points,
+                    "max_available_history": max_available_history,
+                    "failure_count": len(stock_failures),
+                },
+            )
+            return
 
         repository.complete_run(
             run_id=run_id,
             success_count=success_count,
             failed_count=len(stock_failures),
             status="completed",
-            error_message=None if not stock_failures else str(stock_failures),
+            error_message=None
+            if not stock_failures
+            else {
+                "message": "部分股票预测失败",
+                "failure_count": len(stock_failures),
+                "sample_failures": stock_failures,
+            },
         )
         logger.info(
             "run completed, success=%s failed=%s run_uuid=%s",

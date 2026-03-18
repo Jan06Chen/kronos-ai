@@ -112,7 +112,7 @@ def load_config() -> AppConfig:
             "KRONOS_DB_URL",
             "mysql+pymysql://root:9801309@127.0.0.1:3306/stock_data?charset=utf8mb4",
         ),
-        request_timeout=int(os.getenv("KRONOS_REQUEST_TIMEOUT", "30")),
+        request_timeout=int(os.getenv("KRONOS_REQUEST_TIMEOUT", "120")),
         device=device_raw or None,
         top_p=float(os.getenv("KRONOS_TOP_P", "0.9")),
         temperature=float(os.getenv("KRONOS_TEMPERATURE", "1.0")),
